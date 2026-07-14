@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Document Photo Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            text-align: center;
+            background-color: #f4f7f6;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .flex-layout {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 25px;
+            margin-top: 25px;
+            text-align: left;
+        }
+        .form-section {
+            flex: 1;
+            min-width: 320px;
+        }
+        .camera-section {
+            flex: 1.2;
+            min-width: 350px;
+            background: #222;
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            text-align: center;
+        }
+        .method-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            background: #e9ecef;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 4px;
+        }
+        .tab-btn.active {
+            background: #007bff;
+            color: white;
+        }
+        .method-content {
+            display: none;
+        }
+        .method-content.active {
+            display: block;
+        }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .error-banner {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            margin: 20px 0;
+            border: 1px solid #ffeeba;
+            border-radius: 4px;
+            text-align: left;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        /* Camera UI Wrapper */
+        .camera-container {
+            position: relative;
+            width: 100%;
+            max-width: 480px;
+            margin: 0 auto;
+            background: #000;
+            overflow: hidden;
+            border-radius: 6px;
+        }
+        #video {
+            width: 100%;
+            display: block;
+            transform: scaleX(-1); /* Mirror view for user comfort */
+        }
+        .camera-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        /* Guided Mask Styling */
+        .scanner-box {
+            position: absolute;
+            border: 3px solid #ffc107; /* Yellow guideline like Document Scanners */
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6); /* Dim outer edges */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+        .scanner-silhouette {
+            width: 100%;
+            height: 100%;
+            opacity: 0.7;
+        }
+        #result {
+            margin-top: 30px;
+            text-align: center;
+        }
+        #result img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Document Photo Generator</h1>
+        <p>Upload an asset or capture a live portrait using our intelligent guide matrix frame.</p>
+
+        {% if error_message %}
+        <div class="error-banner">
+            <strong>⚠️ Configuration Adjustment Needed:</strong>
+            <p style="margin: 5px 0 0 0;">{{ error_message }}</p>
+        </div>
+        {% endif %}
+
+        <div class="flex-layout">
+            <!-- Left Side controls -->
+            <div class="form-section">
+                <div class="form-group">
+                    <label for="bg_color">Background Color:</label>
+                    <select name="bg_color" id="bg_color">
+                        <option value="white">White</option>
+                        <option value="blue">Blue</option>
+                        <option value="red">Red</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="photo_type">Photo Specification Ratio:</label>
+                    <select name="photo_type" id="photo_type" onchange="updateScannerRatio()">
+                        <option value="us" data-ratio="1.0">US Passport / Visa (1:1)</option>
+                        <option value="india" data-ratio="1.0">Indian Passport (1:1)</option>
+                        <option value="traffic" data-ratio="0.77">Traffic License (3.5 x 4.5)</option>
+                        <option value="student" data-ratio="0.75">College ID (3 x 4)</option>
+                        <option value="company" data-ratio="0.66">Company Badge (2 : 3)</option>
+                    </select>
+                </div>
+
+                <div class="method-tabs">
+                    <button class="tab-btn active" onclick="switchMethod('upload')">Option 1: Upload File</button>
+                    <button class="tab-btn" onclick="switchMethod('camera')">Option 2: Use Camera</button>
+                </div>
+
+                <!-- Method A: File Upload Form -->
+                <div id="upload-method" class="method-content active">
+                    <form id="uploadForm" action="/generate-passport/" method="post" enctype="multipart/form-data">
+                        <input type="hidden" name="bg_color" class="sync-bg">
+                        <input type="hidden" name="photo_type" class="sync-type">
+                        <div class="upload-box">
+                            <input type="file" name="file" accept="image/*" required>
+                        </div>
+                        <button type="submit">Generate Printable Sheet</button>
+                    </form>
+                </div>
+
+                <!-- Method B: Capture Form payload container -->
+                <div id="camera-method" class="method-content">
+                    <p style="font-size: 14px; color: #555;">Align your face inside the yellow box. Stand back so your head fits inside the dashed oval and shoulders match the bottom arc line.</p>
+                    <form id="captureForm" action="/generate-passport/" method="post" enctype="multipart/form-data">
+                        <input type="hidden" name="bg_color" class="sync-bg">
+                        <input type="hidden" name="photo_type" class="sync-type">
+                        <input type="hidden" name="image_base64" id="image_base64">
+                        <button type="button" onclick="takeSnapshot()" style="background-color: #28a745;">Capture and Build</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Right Side live Camera/Preview Box -->
+            <div class="camera-section">
+                <div id="camera-view-panel">
+                    <div class="camera-container">
+                        <video id="video" autoplay playsinline></video>
+                        <div class="camera-overlay">
+                            <div id="scanner-box" class="scanner-box">
+                                <svg class="scanner-silhouette" viewBox="0 0 100 100">
+                                    <circle cx="50" cy="42" r="16" fill="none" stroke="#ffc107" stroke-width="1.5" stroke-dasharray="3,3"/>
+                                    <path d="M22,90 C22,72 34,65 50,65 C66,65 78,72 78,90" fill="none" stroke="#ffc107" stroke-width="1.5" stroke-dasharray="3,3"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="canvas" style="display:none;"></canvas>
+            </div>
+        </div>
+
+        {% if image_generated %}
+        <div id="result">
+            <h2>Your Printable 4x6 Layout Sheet</h2>
+            <img src="data:image/jpeg;base64,{{ image_data }}" alt="Document Photos Grid">
+            <br><br>
+            <a href="data:image/jpeg;base64,{{ image_data }}" download="document_sheet.jpg">
+                <button style="background-color: #28a745; width: auto;">Download Layout Image</button>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const scannerBox = document.getElementById('scanner-box');
+        let streamTrack = null;
+
+        function switchMethod(method) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.method-content').forEach(c => c.classList.remove('active'));
+
+            if(method === 'upload') {
+                document.querySelectorAll('.tab-btn')[0].classList.add('active');
+                document.getElementById('upload-method').classList.add('active');
+                stopCamera();
+            } else {
+                document.querySelectorAll('.tab-btn')[1].classList.add('active');
+                document.getElementById('camera-method').classList.add('active');
+                startCamera();
+            }
+        }
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 640, height: 480, facingMode: "user" },
+                    audio: false
+                });
+                video.srcObject = stream;
+                streamTrack = stream.getTracks()[0];
+                setTimeout(updateScannerRatio, 500);
+            } catch (err) {
+                alert("Camera access denied or unavailable. Please use file upload mode instead.");
+                switchMethod('upload');
+            }
+        }
+
+        function stopCamera() {
+            if(streamTrack) {
+                streamTrack.stop();
+                streamTrack = null;
+            }
+        }
+
+        function updateScannerRatio() {
+            const select = document.getElementById('photo_type');
+            const ratio = parseFloat(select.options[select.selectedIndex].getAttribute('data-ratio'));
+
+            const maxHeight = video.clientHeight ? video.clientHeight * 0.85 : 350;
+            let targetHeight = maxHeight;
+            let targetWidth = targetHeight * ratio;
+
+            const maxWidth = video.clientWidth ? video.clientWidth * 0.85 : 350;
+            if (targetWidth > maxWidth) {
+                targetWidth = maxWidth;
+                targetHeight = targetWidth / ratio;
+            }
+
+            scannerBox.style.width = `${targetWidth}px`;
+            scannerBox.style.height = `${targetHeight}px`;
+        }
+
+        function takeSnapshot() {
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Draw mirrored image frame to canvas
+            context.translate(canvas.width, 0);
+            context.scale(-1, 1);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+            document.getElementById('image_base64').value = dataUrl;
+
+            syncFormData();
+            stopCamera();
+            document.getElementById('captureForm').submit();
+        }
+
+        function syncFormData() {
+            const bg = document.getElementById('bg_color').value;
+            const type = document.getElementById('photo_type').value;
+            document.querySelectorAll('.sync-bg').forEach(i => i.value = bg);
+            document.querySelectorAll('.sync-type').forEach(i => i.value = type);
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', syncFormData);
+        window.addEventListener('resize', updateScannerRatio);
+    </script>
+</body>
+</html>
