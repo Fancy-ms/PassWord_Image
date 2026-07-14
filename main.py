@@ -7,7 +7,6 @@ from fastapi.templating import Jinja2Templates
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
-import rembg
 
 app = FastAPI(title="AI Document Photo Generator")
 templates = Jinja2Templates(directory="templates")
@@ -28,6 +27,21 @@ COLOR_MAP = {
     "blue": (0, 102, 204, 255),
     "red": (204, 0, 0, 255)
 }
+
+def apply_studio_polish(cv2_bgr_img):
+    result = cv2.cvtColor(cv2_bgr_img, cv2.COLOR_BGR2LAB)
+    avg_a = np.average(result[:, :, 1])
+    avg_b = np.average(result[:, :, 2])
+    result[:, :, 1] = result[:, :, 1] - ((avg_a - 128) * (result[:, :, 0] / 255.0) * 1.1)
+    result[:, :, 2] = result[:, :, 2] - ((avg_b - 128) * (result[:, :, 0] / 255.0) * 1.1)
+    balanced = cv2.cvtColor(result, cv2.COLOR_LAB2BGR)
+
+    lab = cv2.cvtColor(balanced, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8,8))
+    cl = clahe.apply(l)
+    limg = cv2.merge((cl,a,b))
+    return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
 def intelligent_seam_stretch(pil_img: Image.Image, target_w: int, target_h: int, face_box_crop: tuple) -> Image.Image:
     fx, fy, fw, fh = face_box_crop
@@ -66,8 +80,17 @@ def intelligent_seam_stretch(pil_img: Image.Image, target_w: int, target_h: int,
         return Image.fromarray(cv2.resize(canvas, (target_w, target_h), interpolation=cv2.INTER_LANCZOS4) if canvas.shape[0] != target_h else canvas)
 
 def process_document_sheet(input_bytes: bytes, bg_color_name: str, photo_type: str) -> io.BytesIO:
+    import rembg  # Lazy import inside the function so Uvicorn boots instantly
+
     raw_img = Image.open(io.BytesIO(input_bytes))
     oriented_image = ImageOps.exif_transpose(raw_img)
+
+    # Apply automatic lighting polish
+    bgr_cv = cv2.cvtColor(np.array(oriented_image.convert("RGB")), cv2.COLOR_RGB2BGR)
+    polished_cv = apply_studio_polish(bgr_cv)
+    polished_rgb = cv2.cvtColor(polished_cv, cv2.COLOR_BGR2RGB)
+    oriented_image = Image.fromarray(polished_rgb)
+
     transparent_image = rembg.remove(oriented_image)
 
     numpy_array = np.array(transparent_image)
